@@ -10,6 +10,7 @@ open System.Net
 open System.Reflection
 open System.Text
 
+open FSharp.Data
 open FSharp.Formatting.Common
 open FSharp.Formatting.HtmlModel
 open FSharp.Formatting.HtmlModel.Html
@@ -550,40 +551,65 @@ type internal DocContent
                          Int32.MaxValue)
                 | None -> Int32.MaxValue)
 
-        [
-          // No categories specified
-          if modelsByCategory.Length = 1 && (fst modelsByCategory.[0]) = None then
-              li [ Class "nav-header" ] [ !! "Documentation" ]
+        // Imagine this came from a setting
+        let endPointUrl = Some "http://localhost:8906/menu"
 
-              for model in snd modelsByCategory.[0] do
-                  let link = model.Uri(root)
+        match endPointUrl with
+        | Some url ->
+            let json =
+                modelsForList
+                |> List.map (fun model ->
+                    {| title = model.Title
+                       category = Option.defaultValue null model.Category
+                       categoryIndex = Option.defaultValue null model.CategoryIndex
+                       index = Option.defaultValue null model.Index
+                       link = model.Uri(root) |})
+                |> System.Text.Json.JsonSerializer.Serialize
 
-                  li [ Class "nav-item" ] [ a [ Class "nav-link"; (Href link) ] [ encode model.Title ] ]
-          else
-              // At least one category has been specified. Sort each category by index and emit
-              // Use 'Other' as a header for uncategorised things
-              for (cat, modelsInCategory) in modelsByCategory do
-                  let modelsInCategory =
-                      modelsInCategory
-                      |> List.sortBy (fun model ->
-                          match model.Index with
-                          | Some s ->
-                              (try
-                                  int32 s
-                               with _ ->
-                                   Int32.MaxValue)
-                          | None -> Int32.MaxValue)
+            let body =
+                FSharp.Data.Http.RequestString(
+                    url,
+                    headers = [ "Content-Type", "application/json" ],
+                    httpMethod = "POST",
+                    body = HttpRequestBody.TextRequest json
+                )
 
-                  match cat with
-                  | Some c -> li [ Class "nav-header" ] [ !!c ]
-                  | None -> li [ Class "nav-header" ] [ !! "Other" ]
+            body
+        | None ->
+            [
+              // No categories specified
+              if modelsByCategory.Length = 1 && (fst modelsByCategory.[0]) = None then
+                  li [ Class "nav-header" ] [ !! "Documentation" ]
 
-                  for model in modelsInCategory do
+                  for model in snd modelsByCategory.[0] do
                       let link = model.Uri(root)
 
-                      li [ Class "nav-item" ] [ a [ Class "nav-link"; (Href link) ] [ encode model.Title ] ] ]
-        |> List.map (fun html -> html.ToString())
-        |> String.concat "             \n"
+                      li [ Class "nav-item" ] [ a [ Class "nav-link"; (Href link) ] [ encode model.Title ] ]
+              else
+                  // At least one category has been specified. Sort each category by index and emit
+                  // Use 'Other' as a header for uncategorised things
+                  for (cat, modelsInCategory) in modelsByCategory do
+                      let modelsInCategory =
+                          modelsInCategory
+                          |> List.sortBy (fun model ->
+                              match model.Index with
+                              | Some s ->
+                                  (try
+                                      int32 s
+                                   with _ ->
+                                       Int32.MaxValue)
+                              | None -> Int32.MaxValue)
+
+                      match cat with
+                      | Some c -> li [ Class "nav-header" ] [ !!c ]
+                      | None -> li [ Class "nav-header" ] [ !! "Other" ]
+
+                      for model in modelsInCategory do
+                          let link = model.Uri(root)
+
+                          li [ Class "nav-item" ] [ a [ Class "nav-link"; (Href link) ] [ encode model.Title ] ] ]
+            |> List.map (fun html -> html.ToString())
+            |> String.concat "             \n"
 
 /// Processes and runs Suave server to host them on localhost
 module Serve =
